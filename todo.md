@@ -10,4 +10,4 @@
 - [x] Create a private GitHub repository for LocalMesh.
 - [x] Push the current validated project source to the new repository.
 - [x] Replace project-bound visual assets and add a GitHub Pages workflow.
-- [ ] Confirm the repository URL and deployment-ready build workflow.
+- [x] Confirm the repository URL and deployment-ready build workflow.
