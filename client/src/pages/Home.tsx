@@ -370,7 +370,7 @@ export default function Home() {
     <main className="instrument-shell">
       <aside className="command-rail" aria-label="LocalMesh controls">
         <div className="brand-lockup">
-          <img src="/manus-storage/localmesh-mark_977608f5.png" alt="" className="brand-mark-image" />
+          <MiniMark className="brand-mark" />
           <div>
             <p className="brand-name">LOCALMESH</p>
             <p className="brand-subtitle">OFFLINE COLLABORATION</p>
@@ -450,7 +450,6 @@ export default function Home() {
                 onPointerUp={finishDeviceDrag}
                 onPointerCancel={finishDeviceDrag}
               >
-                <img src="/manus-storage/localmesh-topology-field_0a95ad2e.png" alt="Abstract LocalMesh peer topology" className="topology-art" />
                 <div className="coordinate-label label-one">07.442N / 11.9E</div>
                 <div className="coordinate-label label-two">DRAG PEERS TO REPOSITION</div>
                 <svg viewBox="0 0 800 320" aria-hidden="true" className="mesh-lines" preserveAspectRatio="none">
@@ -546,7 +545,7 @@ export default function Home() {
           <div><h2>{activeDevice.name}</h2><p>{activeDevice.role}</p></div>
         </div>
         <div className="reachability-row"><span className={activeDevice.online ? "online" : "offline"}><i />{activeDevice.online ? "Reachable now" : "Temporarily offline"}</span><code>{activeDevice.ip}</code></div>
-        <div className="inspector-image-wrap"><img src="/manus-storage/localmesh-resilience-object_2675903a.png" alt="Abstract relay topology object" /></div>
+        <div className="inspector-image-wrap" aria-hidden="true"><div className="relay-illustration"><span /><span /><span /><i /><i /><i /></div></div>
         <div className="detail-stack">
           <div className="detail-row"><span><Wifi size={15} />Discovery</span><strong>{activeDevice.online ? "mDNS announced" : "last seen 02m"}</strong></div>
           <div className="detail-row"><span><ArrowDownToLine size={15} />Outbox</span><strong>{activeDevice.pending ? `${activeDevice.pending} queued op${activeDevice.pending > 1 ? "s" : ""}` : "clear"}</strong></div>
