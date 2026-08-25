@@ -28,7 +28,7 @@ import {
   Wifi,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
 type DeviceId = "alpha" | "bravo" | "charlie";
 type EventTone = "good" | "warn" | "danger" | "neutral";
@@ -62,12 +62,21 @@ type LedgerEvent = {
   tone: EventTone;
 };
 
+type PeerPosition = { x: number; y: number };
+type PeerPositions = Record<DeviceId, PeerPosition>;
+type DragState = { id: DeviceId; start: PeerPosition; last: PeerPosition };
+
 const peerIds: DeviceId[] = ["alpha", "bravo", "charlie"];
 const initialBody = `Draft: Map critical incident paths
 • Confirm site leads
 • Share last-known device locations`;
 
 const initialVector: Record<DeviceId, number> = { alpha: 8, bravo: 8, charlie: 8 };
+const initialPositions: PeerPositions = {
+  alpha: { x: 12, y: 68 },
+  bravo: { x: 50, y: 31 },
+  charlie: { x: 84, y: 65 },
+};
 
 function createHash(seed: string) {
   let value = 2166136261;
@@ -102,6 +111,18 @@ function mergeBodies(bodies: string[]) {
       return true;
     })
     .join("\n");
+}
+
+function distanceBetween(first: PeerPosition, second: PeerPosition) {
+  return Math.hypot(first.x - second.x, first.y - second.y);
+}
+
+function routePath(first: PeerPosition, second: PeerPosition, bend = -9) {
+  const startX = first.x * 8;
+  const startY = first.y * 3.2;
+  const endX = second.x * 8;
+  const endY = second.y * 3.2;
+  return `M${startX},${startY} Q${(startX + endX) / 2},${(startY + endY) / 2 + bend} ${endX},${endY}`;
 }
 
 function buildInitialDevices(): MeshDevice[] {
@@ -162,6 +183,9 @@ export default function Home() {
   const [devices, setDevices] = useState<MeshDevice[]>(buildInitialDevices);
   const [selected, setSelected] = useState<DeviceId>("bravo");
   const [partitioned, setPartitioned] = useState(false);
+  const [positions, setPositions] = useState<PeerPositions>(initialPositions);
+  const [dragging, setDragging] = useState<DeviceId | null>(null);
+  const [stationDraft, setStationDraft] = useState("");
   const [integrityState, setIntegrityState] = useState<"verified" | "checking">("verified");
   const [events, setEvents] = useState<LedgerEvent[]>([
     { id: 1, time: "09:42:18", title: "Mesh ready", detail: "3 peers discovered through local relay.", tone: "good" },
@@ -173,6 +197,12 @@ export default function Home() {
   const totalPending = devices.reduce((sum, device) => sum + device.pending, 0);
   const meshStatus = partitioned ? "Partitioned" : totalPending ? "Reconciling" : "Synchronized";
   const titleId = "lm-doc-title";
+  const topologyRef = useRef<HTMLDivElement>(null);
+  const dragStateRef = useRef<DragState | null>(null);
+  const bravoCharlieDistance = Math.round(distanceBetween(positions.bravo, positions.charlie) * 1.2);
+  const signalBudget = Math.max(18, Math.round(100 - Math.max(0, bravoCharlieDistance - 48) * 1.45));
+  const alphaBravoRoute = routePath(positions.alpha, positions.bravo, -17);
+  const bravoCharlieRoute = routePath(positions.bravo, positions.charlie, 18);
 
   const networkHealth = useMemo(() => {
     if (partitioned) return { label: "2 / 3 routes", value: "67%", tone: "warning" };
@@ -221,6 +251,44 @@ export default function Home() {
       partitioned ? `Queued locally at ${editedAt}; version vector advanced.` : `Replicated to reachable peers at ${editedAt}.`,
       partitioned ? "warn" : "good",
     );
+  }
+
+  function commitStationNote() {
+    const note = stationDraft.trim().replace(/^•\s*/, "");
+    if (!note) return;
+    updateDocument(`${activeDevice.doc.body}\n• ${note}`);
+    setStationDraft("");
+  }
+
+  function updateDraggedPosition(event: ReactPointerEvent<HTMLDivElement>) {
+    const dragState = dragStateRef.current;
+    const rect = topologyRef.current?.getBoundingClientRect();
+    if (!dragState || !rect) return;
+    const nextPosition = {
+      x: Math.min(90, Math.max(8, ((event.clientX - rect.left) / rect.width) * 100)),
+      y: Math.min(78, Math.max(18, ((event.clientY - rect.top) / rect.height) * 100)),
+    };
+    dragStateRef.current = { ...dragState, last: nextPosition };
+    setPositions((current) => ({ ...current, [dragState.id]: nextPosition }));
+  }
+
+  function beginDeviceDrag(deviceId: DeviceId, event: ReactPointerEvent<HTMLButtonElement>) {
+    setSelected(deviceId);
+    const start = positions[deviceId];
+    dragStateRef.current = { id: deviceId, start, last: start };
+    setDragging(deviceId);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function finishDeviceDrag() {
+    const dragState = dragStateRef.current;
+    if (!dragState) return;
+    if (distanceBetween(dragState.start, dragState.last) > 1) {
+      const device = devices.find((peer) => peer.id === dragState.id)!;
+      addEvent("Peer station repositioned", `${device.name} moved to a new local relay position. Route geometry and signal budget updated.`, "neutral");
+    }
+    dragStateRef.current = null;
+    setDragging(null);
   }
 
   function applyPartition() {
@@ -292,6 +360,8 @@ export default function Home() {
     setDevices(buildInitialDevices());
     setSelected("bravo");
     setPartitioned(false);
+    setPositions(initialPositions);
+    setStationDraft("");
     setIntegrityState("verified");
     setEvents([{ id: Date.now(), time: timeNow(), title: "Simulation reset", detail: "Mesh returned to its converged baseline.", tone: "neutral" }]);
   }
@@ -373,25 +443,32 @@ export default function Home() {
                 <div><p className="eyebrow">Peer topology</p><h2>Local route map</h2></div>
                 <div className="route-legend"><span><i className="legend-line verified" />Verified</span><span><i className="legend-line queued" />Queued</span></div>
               </div>
-              <div className="topology-field">
+              <div
+                className="topology-field"
+                ref={topologyRef}
+                onPointerMove={updateDraggedPosition}
+                onPointerUp={finishDeviceDrag}
+                onPointerCancel={finishDeviceDrag}
+              >
                 <img src="/manus-storage/localmesh-topology-field_0a95ad2e.png" alt="Abstract LocalMesh peer topology" className="topology-art" />
                 <div className="coordinate-label label-one">07.442N / 11.9E</div>
-                <div className="coordinate-label label-two">LOCAL RADIO MESH</div>
+                <div className="coordinate-label label-two">DRAG PEERS TO REPOSITION</div>
                 <svg viewBox="0 0 800 320" aria-hidden="true" className="mesh-lines" preserveAspectRatio="none">
-                  <path className="mesh-route route-a" d="M120,228 C248,184 317,118 399,114" />
-                  <path className={`mesh-route route-b ${partitioned ? "broken" : ""}`} d="M402,118 C515,138 588,226 674,211" />
-                  <path className={`mesh-ghost ${partitioned ? "visible" : ""}`} d="M402,118 C515,138 588,226 674,211" />
+                  <path className="mesh-route route-a" d={alphaBravoRoute} />
+                  <path className={`mesh-route route-b ${partitioned ? "broken" : ""}`} d={bravoCharlieRoute} />
+                  <path className={`mesh-ghost ${partitioned ? "visible" : ""}`} d={bravoCharlieRoute} />
                 </svg>
                 {devices.map((device) => (
                   <button
                     key={device.id}
                     onClick={() => setSelected(device.id)}
-                    className={`topology-node node-${device.id} ${selected === device.id ? "selected" : ""} ${device.online ? "" : "disconnected"}`}
-                    style={{ "--device-color": device.accent } as React.CSSProperties}
-                    aria-label={`Select ${device.name}`}
+                    onPointerDown={(event) => beginDeviceDrag(device.id, event)}
+                    className={`topology-node ${selected === device.id ? "selected" : ""} ${device.online ? "" : "disconnected"} ${dragging === device.id ? "dragging" : ""}`}
+                    style={{ "--device-color": device.accent, left: `${positions[device.id].x}%`, top: `${positions[device.id].y}%` } as React.CSSProperties}
+                    aria-label={`Select or drag ${device.name}`}
                   >
                     <span className="node-orbit" /><span className="node-core">{device.short}</span>
-                    <span className="node-label"><strong>{device.name}</strong><small>{device.online ? "reachable" : "offline"}</small></span>
+                    <span className="node-label"><strong>{device.name}</strong><small>{device.online ? "reachable" : "offline"}</small><em>drag</em></span>
                   </button>
                 ))}
                 {partitioned && <div className="partition-marker"><Unplug size={13} /> ROUTE SEVERED</div>}
@@ -399,8 +476,13 @@ export default function Home() {
               <div className="topology-meta">
                 <span><Radio size={14} /> mDNS discovery · 3 peers known</span>
                 <span><LockKeyhole size={14} /> Noise IK · encrypted transport</span>
-                <span><Fingerprint size={14} /> Vector clocks enabled</span>
+                <span><Fingerprint size={14} /> Route B–C · {bravoCharlieDistance}m / {signalBudget}% signal</span>
               </div>
+              <form className="field-composer" onSubmit={(event) => { event.preventDefault(); commitStationNote(); }}>
+                <div className="composer-origin"><span style={{ background: activeDevice.accent }}>{activeDevice.short}</span><label htmlFor="station-note">LOCAL NOTE FROM {activeDevice.name.toUpperCase()}</label></div>
+                <input id="station-note" value={stationDraft} onChange={(event) => setStationDraft(event.target.value)} placeholder="Type an offline field note…" />
+                <button type="submit"><FilePenLine size={14} /> Commit locally</button>
+              </form>
             </section>
 
             <section className="document-card card-surface">
